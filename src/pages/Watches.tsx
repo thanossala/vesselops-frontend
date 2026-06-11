@@ -1,6 +1,18 @@
-import { useEffect, useState } from 'react';
+// ─────────────────────────────────────────────
+//  VesselOps — Watches.tsx  (updated)
+//  Changes vs original:
+//    ✓ TableSkeleton instead of spinner
+//    ✓ Error state with retry (was just console.error)
+//    ✓ Replaced alert() with inline error message in form
+//    ✓ Table scrolls horizontally on mobile
+//    ✓ useCallback on fetch to allow retry
+// ─────────────────────────────────────────────
+
+import { useEffect, useState, useCallback } from 'react';
 import type { FormEvent } from 'react';
 import api from '../api/client';
+import { TableSkeleton } from '../components/SkeletonLoader';
+import ErrorState from '../components/ErrorState';
 
 interface Watch {
   id: string;
@@ -14,12 +26,7 @@ interface Watch {
   schedule_date: string;
 }
 
-interface CrewMember {
-  id: string;
-  first_name: string;
-  last_name: string;
-  rank: string;
-}
+interface CrewMember { id: string; first_name: string; last_name: string; rank: string; }
 
 const WATCH_BADGE: Record<string, string> = {
   bridge: 'badge-blue',
@@ -38,50 +45,80 @@ function calcDuration(start: string, end: string) {
 }
 
 export default function Watches() {
-  const [watches, setWatches] = useState<Watch[]>([]);
-  const [crew, setCrew] = useState<CrewMember[]>([]);
-  const [vessels, setVessels] = useState<{ id: string; name: string }[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
+  const [watches, setWatches]     = useState<Watch[]>([]);
+  const [crew, setCrew]           = useState<CrewMember[]>([]);
+  const [vessels, setVessels]     = useState<{ id: string; name: string }[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState('');
+  const [showForm, setShowForm]   = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [selectedDate, setSelectedDate] = useState(today);
   const [form, setForm] = useState({
     vessel_id: '', crew_member_id: '', watch_type: 'bridge',
     start_time: '00:00', end_time: '04:00', schedule_date: today,
   });
 
-  useEffect(() => {
-    Promise.all([api.get(`/watches?date=${selectedDate}`), api.get('/crew'), api.get('/vessels')])
+  const fetchAll = useCallback((date: string) => {
+    setLoading(true);
+    setError('');
+    Promise.all([
+      api.get(`/watches?date=${date}`),
+      api.get('/crew'),
+      api.get('/vessels'),
+    ])
       .then(([watchRes, crewRes, vesselRes]) => {
         setWatches(watchRes.data);
         setCrew(crewRes.data);
         setVessels(vesselRes.data);
-        if (crewRes.data.length > 0) setForm((f) => ({ ...f, crew_member_id: crewRes.data[0].id }));
+        if (crewRes.data.length > 0)   setForm((f) => ({ ...f, crew_member_id: crewRes.data[0].id }));
         if (vesselRes.data.length > 0) setForm((f) => ({ ...f, vessel_id: vesselRes.data[0].id }));
       })
-      .catch(console.error)
+      .catch(() => setError('Could not load watch schedule.'))
       .finally(() => setLoading(false));
-  }, [selectedDate]);
+  }, []);
+
+  useEffect(() => { fetchAll(selectedDate); }, [fetchAll, selectedDate]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
     setSubmitting(true);
     try {
       const res = await api.post('/watches', form);
       const member = crew.find((c) => c.id === form.crew_member_id);
-      setWatches([...watches, { ...res.data, first_name: member?.first_name, last_name: member?.last_name, rank: member?.rank }]);
+      setWatches([...watches, {
+        ...res.data,
+        first_name: member?.first_name,
+        last_name:  member?.last_name,
+        rank:       member?.rank,
+      }]);
       setShowForm(false);
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to save');
+      // Was alert() — now shows inline error in the form
+      setSubmitError(err.response?.data?.error || 'Failed to save watch.');
     } finally { setSubmitting(false); }
   };
 
   const handleDelete = async (id: string) => {
-    try { await api.delete(`/watches/${id}`); setWatches(watches.filter((w) => w.id !== id)); }
-    catch (err) { console.error(err); }
+    try {
+      await api.delete(`/watches/${id}`);
+      setWatches(watches.filter((w) => w.id !== id));
+    } catch (err) { console.error(err); }
   };
 
-  if (loading) return <div className="loading"><div className="spinner" />Loading watch schedule...</div>;
+  if (loading) return <TableSkeleton rows={4} cols={5} />;
+
+  if (error) return (
+    <div className="page">
+      <div className="page-header">
+        <div className="page-title">Watch Schedules</div>
+      </div>
+      <div className="card">
+        <ErrorState message={error} onRetry={() => fetchAll(selectedDate)} />
+      </div>
+    </div>
+  );
 
   const sorted = [...watches].sort((a, b) => a.start_time.localeCompare(b.start_time));
 
@@ -90,17 +127,21 @@ export default function Watches() {
       <div className="page-header">
         <div>
           <div className="page-title">Watch Schedules</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
             <label style={{ textTransform: 'none', fontSize: 13, color: 'var(--mist)', letterSpacing: 0 }}>Date:</label>
             <input
-              type="date" value={selectedDate}
+              type="date"
+              value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
               style={{ width: 'auto', fontSize: 13, padding: '5px 10px' }}
             />
             <span style={{ fontSize: 13, color: 'var(--mist)' }}>{watches.length} watches scheduled</span>
           </div>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className={showForm ? 'btn btn-ghost' : 'btn btn-primary'}>
+        <button
+          onClick={() => { setShowForm(!showForm); setSubmitError(''); }}
+          className={showForm ? 'btn btn-ghost' : 'btn btn-primary'}
+        >
           {showForm ? '✕ Cancel' : '+ Add Watch'}
         </button>
       </div>
@@ -108,18 +149,25 @@ export default function Watches() {
       {showForm && (
         <div className="panel">
           <div className="panel-title"><span style={{ color: 'var(--signal)' }}>◈</span> Schedule Watch</div>
+          {submitError && <div className="alert-error" style={{ marginBottom: 14 }}>{submitError}</div>}
           <form onSubmit={handleSubmit}>
             <div className="form-grid form-grid-3" style={{ gap: 14, marginBottom: 14 }}>
               <div>
                 <label>Vessel</label>
                 <select value={form.vessel_id} onChange={(e) => setForm({ ...form, vessel_id: e.target.value })}>
-                  {vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  {vessels.length === 0
+                    ? <option>No vessels found</option>
+                    : vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)
+                  }
                 </select>
               </div>
               <div>
                 <label>Crew Member</label>
                 <select value={form.crew_member_id} onChange={(e) => setForm({ ...form, crew_member_id: e.target.value })}>
-                  {crew.map((c) => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
+                  {crew.length === 0
+                    ? <option>No crew found</option>
+                    : crew.map((c) => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)
+                  }
                 </select>
               </div>
               <div>
@@ -156,8 +204,8 @@ export default function Watches() {
           No watches scheduled for this date.
         </div></div>
       ) : (
-        <div className="table-wrap">
-          <table>
+        <div className="table-wrap" style={{ overflowX: 'auto' }}>
+          <table style={{ minWidth: 520 }}>
             <thead>
               <tr>
                 <th>Crew Member</th>
@@ -192,7 +240,11 @@ export default function Watches() {
                     {calcDuration(watch.start_time, watch.end_time)}
                   </td>
                   <td>
-                    <button onClick={() => handleDelete(watch.id)} className="btn btn-danger" style={{ padding: '4px 12px', fontSize: 12 }}>
+                    <button
+                      onClick={() => handleDelete(watch.id)}
+                      className="btn btn-danger"
+                      style={{ padding: '4px 12px', fontSize: 12 }}
+                    >
                       Remove
                     </button>
                   </td>

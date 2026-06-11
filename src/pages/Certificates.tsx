@@ -1,6 +1,16 @@
-import { useEffect, useState } from 'react';
+// ─────────────────────────────────────────────
+//  VesselOps — Certificates.tsx  (updated)
+//  Changes vs original:
+//    ✓ TableSkeleton instead of spinner
+//    ✓ Error state with retry
+//    ✓ Table scrolls horizontally on mobile
+// ─────────────────────────────────────────────
+
+import { useEffect, useState, useCallback } from 'react';
 import type { FormEvent } from 'react';
 import api from '../api/client';
+import { TableSkeleton } from '../components/SkeletonLoader';
+import ErrorState from '../components/ErrorState';
 
 interface Certificate {
   id: string;
@@ -35,47 +45,69 @@ const STATUS_INFO: Record<string, { badge: string; label: string }> = {
 };
 
 export default function Certificates() {
-  const [certs, setCerts] = useState<Certificate[]>([]);
-  const [crew, setCrew] = useState<CrewMember[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
+  const [certs, setCerts]         = useState<Certificate[]>([]);
+  const [crew, setCrew]           = useState<CrewMember[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState('');
+  const [showForm, setShowForm]   = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [form, setForm] = useState({ crew_member_id: '', cert_type: CERT_TYPES[0], cert_number: '', issue_date: '', expiry_date: '' });
+  const [form, setForm] = useState({
+    crew_member_id: '', cert_type: CERT_TYPES[0],
+    cert_number: '', issue_date: '', expiry_date: '',
+  });
 
-  useEffect(() => {
+  const fetchAll = useCallback(() => {
+    setLoading(true);
+    setError('');
     Promise.all([api.get('/certificates'), api.get('/crew')])
       .then(([certRes, crewRes]) => {
         setCerts(certRes.data);
         setCrew(crewRes.data);
-        if (crewRes.data.length > 0) setForm((f) => ({ ...f, crew_member_id: crewRes.data[0].id }));
+        if (crewRes.data.length > 0)
+          setForm((f) => ({ ...f, crew_member_id: crewRes.data[0].id }));
       })
-      .catch(console.error)
+      .catch(() => setError('Could not load certificates.'))
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
+    if (!form.expiry_date) { setSubmitError('Expiry date is required.'); return; }
     setSubmitting(true);
     try {
       const res = await api.post('/certificates', form);
       const member = crew.find((c) => c.id === form.crew_member_id);
       setCerts([{ ...res.data, first_name: member?.first_name, last_name: member?.last_name, rank: member?.rank }, ...certs]);
       setShowForm(false);
-    } catch (err) { console.error(err); }
-    finally { setSubmitting(false); }
+    } catch (err: any) {
+      setSubmitError(err.response?.data?.error || 'Failed to save certificate.');
+    } finally { setSubmitting(false); }
   };
 
   const filtered = filterStatus === 'all' ? certs : certs.filter((c) => c.status === filterStatus);
 
   const counts = {
-    all: certs.length,
-    valid: certs.filter((c) => c.status === 'valid').length,
+    all:           certs.length,
+    valid:         certs.filter((c) => c.status === 'valid').length,
     expiring_soon: certs.filter((c) => c.status === 'expiring_soon').length,
-    expired: certs.filter((c) => c.status === 'expired').length,
+    expired:       certs.filter((c) => c.status === 'expired').length,
   };
 
-  if (loading) return <div className="loading"><div className="spinner" />Loading certificates...</div>;
+  if (loading) return <TableSkeleton rows={6} cols={6} />;
+
+  if (error) return (
+    <div className="page">
+      <div className="page-header">
+        <div className="page-title">Crew Certificates</div>
+      </div>
+      <div className="card"><ErrorState message={error} onRetry={fetchAll} /></div>
+    </div>
+  );
 
   return (
     <div className="page">
@@ -84,7 +116,10 @@ export default function Certificates() {
           <div className="page-title">Crew Certificates</div>
           <div style={{ color: 'var(--mist)', fontSize: 13, marginTop: 3 }}>{certs.length} certificates tracked</div>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className={showForm ? 'btn btn-ghost' : 'btn btn-primary'}>
+        <button
+          onClick={() => { setShowForm(!showForm); setSubmitError(''); }}
+          className={showForm ? 'btn btn-ghost' : 'btn btn-primary'}
+        >
           {showForm ? '✕ Cancel' : '+ Add Certificate'}
         </button>
       </div>
@@ -92,12 +127,16 @@ export default function Certificates() {
       {showForm && (
         <div className="panel">
           <div className="panel-title"><span style={{ color: 'var(--signal)' }}>◈</span> Add Certificate</div>
+          {submitError && <div className="alert-error" style={{ marginBottom: 14 }}>{submitError}</div>}
           <form onSubmit={handleSubmit}>
             <div className="form-grid form-grid-2" style={{ gap: 14, marginBottom: 14 }}>
               <div>
                 <label>Crew Member</label>
                 <select value={form.crew_member_id} onChange={(e) => setForm({ ...form, crew_member_id: e.target.value })}>
-                  {crew.map((c) => <option key={c.id} value={c.id}>{c.first_name} {c.last_name} — {c.rank}</option>)}
+                  {crew.length === 0
+                    ? <option>No crew members found</option>
+                    : crew.map((c) => <option key={c.id} value={c.id}>{c.first_name} {c.last_name} — {c.rank}</option>)
+                  }
                 </select>
               </div>
               <div>
@@ -108,8 +147,12 @@ export default function Certificates() {
               </div>
               <div>
                 <label>Certificate Number</label>
-                <input type="text" placeholder="GR-2024-001234" value={form.cert_number}
-                  onChange={(e) => setForm({ ...form, cert_number: e.target.value })} />
+                <input
+                  type="text"
+                  placeholder="GR-2024-001234"
+                  value={form.cert_number}
+                  onChange={(e) => setForm({ ...form, cert_number: e.target.value })}
+                />
               </div>
               <div />
               <div>
@@ -143,8 +186,8 @@ export default function Certificates() {
           No certificates found.
         </div></div>
       ) : (
-        <div className="table-wrap">
-          <table>
+        <div className="table-wrap" style={{ overflowX: 'auto' }}>
+          <table style={{ minWidth: 640 }}>
             <thead>
               <tr>
                 <th>Crew Member</th>
@@ -171,7 +214,9 @@ export default function Certificates() {
                     </span>
                   </td>
                   <td style={{ fontSize: 12, color: 'var(--mist)' }}>
-                    {cert.issue_date ? new Date(cert.issue_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                    {cert.issue_date
+                      ? new Date(cert.issue_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : '—'}
                   </td>
                   <td style={{ fontSize: 12, color: cert.status === 'expired' ? 'var(--red)' : cert.status === 'expiring_soon' ? 'var(--amber)' : 'var(--fog)' }}>
                     {new Date(cert.expiry_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}

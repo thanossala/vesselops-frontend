@@ -288,3 +288,93 @@ tbody td { padding: 13px 16px; color: var(--fog); vertical-align: middle; }
   border-radius: 50%;
   border: 1px solid rgba(143,163,200,0.04);
 }
+/* ── Skeleton shimmer ─────────────────────────────────── */
+.sk-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--steel) 25%,
+    var(--slate) 50%,
+    var(--steel) 75%
+  );
+  background-size: 200% 100%;
+  animation: sk-wave 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes sk-wave {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Dashboard responsive grids ──────────────────────── */
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.dashboard-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* ── Navbar mobile toggle (hidden on desktop) ─────────── */
+.nav-mobile-toggle { display: none !important; }
+.nav-desktop       { display: flex !important; }
+
+/* ── Page padding on mobile ───────────────────────────── */
+@media (max-width: 900px) {
+  .dashboard-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  /* Show hamburger, hide desktop nav */
+  .nav-mobile-toggle { display: flex !important; }
+  .nav-desktop       { display: none !important; }
+
+  /* Reduce page padding */
+  .page {
+    padding: 20px 16px;
+  }
+
+  /* Stack dashboard cards */
+  .dashboard-cards {
+    grid-template-columns: 1fr;
+  }
+
+  /* Modals go full-width with margin */
+  .modal {
+    max-width: calc(100vw - 32px) !important;
+    margin: 0 16px;
+  }
+
+  /* Form grids collapse on small screens */
+  .form-grid-2,
+  .form-grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Filter tabs wrap */
+  .filter-tabs {
+    flex-wrap: wrap;
+  }
+
+  /* Page header stacks on very small screens */
+  .page-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Stat cards go 1-col on very small screens */
+  .dashboard-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stat-value {
+    font-size: 24px !important;
+  }
+}

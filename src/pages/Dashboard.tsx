@@ -1,5 +1,15 @@
-import { useEffect, useState } from 'react';
+// ─────────────────────────────────────────────
+//  VesselOps — Dashboard.tsx  (updated)
+//  Changes vs original:
+//    ✓ DashboardSkeleton instead of spinner
+//    ✓ Error state with retry button
+//    ✓ Mobile responsive grid (4-col → 2-col → 1-col)
+// ─────────────────────────────────────────────
+
+import { useEffect, useState, useCallback } from 'react';
 import api from '../api/client';
+import { DashboardSkeleton } from '../components/SkeletonLoader';
+import ErrorState from '../components/ErrorState';
 
 interface CertAlert {
   first_name: string;
@@ -41,31 +51,42 @@ function fmtDeg(n: number, posDir: string, negDir: string) {
 }
 
 export default function Dashboard() {
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [data, setData]       = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true);
+    setError('');
     api.get('/dashboard')
       .then((res) => setData(res.data))
-      .catch(console.error)
+      .catch(() => setError('Could not load operations data. Is the server running?'))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const getCrewCount = (status: string) =>
     data?.crew_summary.find((s) => s.status === status)?.count || '0';
 
-  if (loading) return (
-    <div className="loading">
-      <div className="spinner" />
-      Loading operations data...
+  if (loading) return <DashboardSkeleton />;
+
+  if (error) return (
+    <div className="page">
+      <div className="page-header">
+        <div className="page-title">Operations Dashboard</div>
+      </div>
+      <div className="card">
+        <ErrorState message={error} onRetry={fetchData} />
+      </div>
     </div>
   );
 
   const stats = [
-    { label: 'Active Crew', value: getCrewCount('active'), note: 'on duty' },
-    { label: 'On Leave', value: getCrewCount('on_leave'), note: 'away' },
-    { label: 'Cert Alerts', value: data?.cert_alerts.length || 0, note: 'require attention', danger: (data?.cert_alerts.length || 0) > 0 },
-    { label: 'Logbook Entries', value: data?.recent_logbook.length || 0, note: 'recent' },
+    { label: 'Active Crew',      value: getCrewCount('active'),             note: 'on duty' },
+    { label: 'On Leave',         value: getCrewCount('on_leave'),           note: 'away' },
+    { label: 'Cert Alerts',      value: data?.cert_alerts.length || 0,      note: 'require attention', danger: (data?.cert_alerts.length || 0) > 0 },
+    { label: 'Logbook Entries',  value: data?.recent_logbook.length || 0,   note: 'recent' },
   ];
 
   return (
@@ -90,8 +111,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
+      {/* Stat cards — responsive grid */}
+      <div className="dashboard-stats">
         {stats.map(({ label, value, note, danger }) => (
           <div key={label} className="stat-card">
             <div className="stat-label">{label}</div>
@@ -101,7 +122,8 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      {/* Two-column cards — stacks on mobile */}
+      <div className="dashboard-cards">
 
         {/* Certificate Alerts */}
         <div className="card" style={{ padding: '18px 20px' }}>
@@ -176,7 +198,11 @@ export default function Dashboard() {
                       {entry.sea_state?.replace('_', ' ')}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--mist)' }}>{entry.speed_kn} kn</span>
-                    {entry.weather && <span style={{ fontSize: 11, color: 'var(--mist)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.weather}</span>}
+                    {entry.weather && (
+                      <span style={{ fontSize: 11, color: 'var(--mist)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {entry.weather}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -186,10 +212,7 @@ export default function Dashboard() {
       </div>
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
     </div>
   );

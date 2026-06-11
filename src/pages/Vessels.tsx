@@ -1,5 +1,15 @@
-import { useEffect, useState } from 'react';
+// ─────────────────────────────────────────────
+//  VesselOps — Vessels.tsx  (updated)
+//  Changes vs original:
+//    ✓ VesselsSkeleton instead of spinner
+//    ✓ Error state with retry (was just console.error)
+//    ✓ Table scrolls horizontally on mobile
+// ─────────────────────────────────────────────
+
+import { useEffect, useState, useCallback } from 'react';
 import api from '../api/client';
+import { VesselsSkeleton } from '../components/SkeletonLoader';
+import ErrorState from '../components/ErrorState';
 
 interface Vessel {
   id: number;
@@ -16,55 +26,79 @@ const VESSEL_TYPES = [
 ];
 
 const TYPE_COLORS: Record<string, string> = {
-  'Tanker': 'badge-red',
-  'Container Ship': 'badge-blue',
-  'Bulk Carrier': 'badge-amber',
-  'Passenger': 'badge-green',
-  'Ferry': 'badge-green',
+  'Tanker':           'badge-red',
+  'Container Ship':   'badge-blue',
+  'Bulk Carrier':     'badge-amber',
+  'Passenger':        'badge-green',
+  'Ferry':            'badge-green',
 };
 
 export default function Vessels() {
-  const [vessels, setVessels] = useState<Vessel[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [vessels, setVessels]     = useState<Vessel[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState('');
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
   const [form, setForm] = useState({ name: '', imo_number: '', flag: '', vessel_type: '' });
 
-  const fetchVessels = () => {
-    api.get('/vessels').then((res) => setVessels(res.data)).catch(console.error).finally(() => setLoading(false));
-  };
-  useEffect(() => { fetchVessels(); }, []);
+  const fetchVessels = useCallback(() => {
+    setLoading(true);
+    setError('');
+    api.get('/vessels')
+      .then((res) => setVessels(res.data))
+      .catch(() => setError('Could not load fleet registry.'))
+      .finally(() => setLoading(false));
+  }, []);
 
-  const openModal = () => { setForm({ name: '', imo_number: '', flag: '', vessel_type: '' }); setError(''); setShowModal(true); };
-  const closeModal = () => { setShowModal(false); setError(''); };
+  useEffect(() => { fetchVessels(); }, [fetchVessels]);
+
+  const openModal  = () => { setForm({ name: '', imo_number: '', flag: '', vessel_type: '' }); setFormError(''); setShowModal(true); };
+  const closeModal = () => { setShowModal(false); setFormError(''); };
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
   const handleSubmit = async () => {
-    if (!form.name.trim()) { setError('Vessel name is required.'); return; }
-    setSubmitting(true); setError('');
+    if (!form.name.trim()) { setFormError('Vessel name is required.'); return; }
+    setSubmitting(true);
+    setFormError('');
     try {
       await api.post('/vessels', {
-        name: form.name.trim(),
-        imo_number: form.imo_number.trim() || null,
-        flag: form.flag.trim() || null,
-        vessel_type: form.vessel_type || null,
+        name:        form.name.trim(),
+        imo_number:  form.imo_number.trim() || null,
+        flag:        form.flag.trim()        || null,
+        vessel_type: form.vessel_type        || null,
       });
-      closeModal(); fetchVessels();
+      closeModal();
+      fetchVessels();
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to add vessel.');
+      setFormError(err?.response?.data?.error || 'Failed to add vessel.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (loading) return <div className="loading"><div className="spinner" />Loading vessels...</div>;
+  if (loading) return <VesselsSkeleton />;
+
+  if (error) return (
+    <div className="page">
+      <div className="page-header">
+        <div className="page-title">Fleet Registry</div>
+        <button onClick={openModal} className="btn btn-primary">+ Add Vessel</button>
+      </div>
+      <div className="card"><ErrorState message={error} onRetry={fetchVessels} /></div>
+    </div>
+  );
 
   return (
     <div className="page">
       <div className="page-header">
-        <div className="page-title">Fleet Registry</div>
+        <div>
+          <div className="page-title">Fleet Registry</div>
+          <div style={{ color: 'var(--mist)', fontSize: 13, marginTop: 3 }}>
+            {vessels.length} vessel{vessels.length !== 1 ? 's' : ''} registered
+          </div>
+        </div>
         <button onClick={openModal} className="btn btn-primary">+ Add Vessel</button>
       </div>
 
@@ -74,8 +108,8 @@ export default function Vessels() {
           No vessels registered yet. Add your first vessel to begin.
         </div></div>
       ) : (
-        <div className="table-wrap">
-          <table>
+        <div className="table-wrap" style={{ overflowX: 'auto' }}>
+          <table style={{ minWidth: 520 }}>
             <thead>
               <tr>
                 <th>Vessel Name</th>
@@ -92,7 +126,12 @@ export default function Vessels() {
                     <div style={{ fontWeight: 600, color: 'var(--white)', fontSize: 13 }}>{v.name}</div>
                   </td>
                   <td>
-                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: v.imo_number ? 'var(--fog)' : 'var(--mist)', opacity: v.imo_number ? 1 : 0.5 }}>
+                    <span style={{
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      fontSize: 12,
+                      color: v.imo_number ? 'var(--fog)' : 'var(--mist)',
+                      opacity: v.imo_number ? 1 : 0.5,
+                    }}>
                       {v.imo_number || '—'}
                     </span>
                   </td>
@@ -122,7 +161,7 @@ export default function Vessels() {
               <div className="modal-title">Add Vessel</div>
               <button className="modal-close" onClick={closeModal}>×</button>
             </div>
-            {error && <div className="alert-error">{error}</div>}
+            {formError && <div className="alert-error">{formError}</div>}
             <div className="form-grid">
               <div>
                 <label>Vessel name <span style={{ color: 'var(--red)' }}>*</span></label>

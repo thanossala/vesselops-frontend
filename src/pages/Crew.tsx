@@ -1,5 +1,15 @@
-import { useEffect, useState } from 'react';
+// ─────────────────────────────────────────────
+//  VesselOps — Crew.tsx  (updated)
+//  Changes vs original:
+//    ✓ TableSkeleton instead of spinner
+//    ✓ Error state with retry
+//    ✓ Table scrolls horizontally on mobile
+// ─────────────────────────────────────────────
+
+import { useEffect, useState, useCallback } from 'react';
 import api from '../api/client';
+import { TableSkeleton } from '../components/SkeletonLoader';
+import ErrorState from '../components/ErrorState';
 
 interface CrewMember {
   id: string;
@@ -30,23 +40,33 @@ const STATUS_LABEL: Record<string, string> = {
   off_signed: 'Off Signed',
 };
 
-const emptyForm = { vessel_id: '', first_name: '', last_name: '', rank: '', nationality: '', contract_start: '', contract_end: '' };
+const emptyForm = {
+  vessel_id: '', first_name: '', last_name: '', rank: '',
+  nationality: '', contract_start: '', contract_end: '',
+};
 
 export default function Crew() {
-  const [crew, setCrew] = useState<CrewMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [crew, setCrew]           = useState<CrewMember[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm]           = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
 
-  const fetchCrew = () => {
-    api.get('/crew').then((res) => setCrew(res.data)).catch(console.error).finally(() => setLoading(false));
-  };
-  useEffect(() => { fetchCrew(); }, []);
+  const fetchCrew = useCallback(() => {
+    setLoading(true);
+    setError('');
+    api.get('/crew')
+      .then((res) => setCrew(res.data))
+      .catch(() => setError('Could not load crew roster.'))
+      .finally(() => setLoading(false));
+  }, []);
 
-  const openModal = () => { setForm(emptyForm); setFormError(''); setShowModal(true); };
+  useEffect(() => { fetchCrew(); }, [fetchCrew]);
+
+  const openModal  = () => { setForm(emptyForm); setFormError(''); setShowModal(true); };
   const closeModal = () => { setShowModal(false); setFormError(''); };
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -55,7 +75,8 @@ export default function Crew() {
     e.preventDefault();
     setFormError('');
     if (!form.first_name.trim() || !form.last_name.trim() || !form.rank) {
-      setFormError('First name, last name and rank are required.'); return;
+      setFormError('First name, last name and rank are required.');
+      return;
     }
     let vessel_id = form.vessel_id;
     if (!vessel_id) {
@@ -68,7 +89,8 @@ export default function Crew() {
     setSubmitting(true);
     try {
       await api.post('/crew', { ...form, vessel_id });
-      closeModal(); setLoading(true); fetchCrew();
+      closeModal();
+      fetchCrew();
     } catch (err: any) {
       setFormError(err.response?.data?.error || 'Failed to add crew member.');
     } finally { setSubmitting(false); }
@@ -78,11 +100,20 @@ export default function Crew() {
 
   const contractDaysLeft = (end: string) => {
     if (!end) return null;
-    const days = Math.ceil((new Date(end).getTime() - Date.now()) / 86400000);
-    return days;
+    return Math.ceil((new Date(end).getTime() - Date.now()) / 86400000);
   };
 
-  if (loading) return <div className="loading"><div className="spinner" />Loading crew roster...</div>;
+  if (loading) return <TableSkeleton rows={6} cols={5} />;
+
+  if (error) return (
+    <div className="page">
+      <div className="page-header">
+        <div className="page-title">Crew Roster</div>
+        <button onClick={openModal} className="btn btn-primary">+ Add Crew Member</button>
+      </div>
+      <div className="card"><ErrorState message={error} onRetry={fetchCrew} /></div>
+    </div>
+  );
 
   return (
     <div className="page">
@@ -108,8 +139,9 @@ export default function Crew() {
           {filterStatus === 'all' ? 'No crew members yet.' : `No crew with status "${STATUS_LABEL[filterStatus]}".`}
         </div></div>
       ) : (
-        <div className="table-wrap">
-          <table>
+        /* overflow-x: auto makes the table scroll on small screens */
+        <div className="table-wrap" style={{ overflowX: 'auto' }}>
+          <table style={{ minWidth: 560 }}>
             <thead>
               <tr>
                 <th>Name</th>
