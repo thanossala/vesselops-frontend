@@ -23,6 +23,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
 
+  // Declared before the effect below that references it in a .catch()
+  // handler — avoids a "used before declaration" lint error, even though
+  // it worked at runtime since the callback only actually runs later.
+  const logout = () => {
+    localStorage.removeItem('token');
+    setToken(null);
+    setUser(null);
+  };
+
   useEffect(() => {
     if (token) {
       api.get('/auth/me')
@@ -40,12 +49,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem('token', newToken);
     setToken(newToken);
     setUser(newUser);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
   };
 
   return (
